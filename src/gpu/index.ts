@@ -203,6 +203,7 @@ function createTextureBindGroup(device: GPUDevice, texture: GPUTexture, sampler:
 // GPU レンダリング設定
 export type GPURendererSettings = {
     speed: number; // 描画速度
+    fps: number; // フレームレート
 }
 
 export interface GPURendererConfig {
@@ -218,7 +219,6 @@ export interface GPURendererController {
     setSpeed: (speed: number) => void;
     stop: () => void;
     isRunning: () => boolean;
-    getFps: () => number;
 }
 
 // GPU レンダリング状態
@@ -235,7 +235,6 @@ interface GPURendererState {
     isRunning: boolean;
     animationId: number | null;
     lastFrameTime: number;
-    fps: number;
     angle: number;
 }
 
@@ -267,7 +266,6 @@ export async function createGPURenderer(config: GPURendererConfig): Promise<GPUR
         isRunning: false,
         animationId: null,
         lastFrameTime: performance.now(),
-        fps: 0,
         angle: 0,
     };
 
@@ -275,10 +273,15 @@ export async function createGPURenderer(config: GPURendererConfig): Promise<GPUR
         if (!state.isRunning) return;
         const now = performance.now();
         const delta = now - state.lastFrameTime;
-        state.fps = 1000 / delta;
-        state.lastFrameTime = now;
+
         // speedはengineStateから取得
-        const { speed } = config.getSettings();
+        const { speed, fps } = config.getSettings();
+        if (delta < 1000 / fps) {
+            state.animationId = requestAnimationFrame(frame);
+            return; // フレームレート制限
+        }
+
+        state.lastFrameTime = now;
         state.angle += speed * (delta / 1000);
         const rad = state.angle * Math.PI / 180;
         const modelMatrix = getRotationMatrixZ(rad);
@@ -368,9 +371,6 @@ export async function createGPURenderer(config: GPURendererConfig): Promise<GPUR
             return state.isRunning;
         },
 
-        getFps(): number {
-            return state.fps;
-        }
     };
 
     // 初期実行

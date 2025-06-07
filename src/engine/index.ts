@@ -21,7 +21,7 @@ export function create6roEngine({
   imagePath?: string;
 }) {
 
-  let engineState: EngineState = { speed: 300 };
+  let engineState: EngineState = { speed: 300, fps: 30, };
   function getEngineState() {
     return { ...engineState };
   }
