@@ -204,15 +204,17 @@ function createTextureBindGroup(device: GPUDevice, texture: GPUTexture, sampler:
 export interface GPURendererConfig {
     canvas: HTMLCanvasElement;
     imagePath: string;
-    speedCallback: () => number; // Frame毎にスピードを取得するコールバック
+    speed?: number; // 初期スピード値（省略時は1.0）
 }
 
 // GPU レンダリングコントローラー
 export interface GPURendererController {
     updateImage: (imagePath: string) => Promise<void>;
     updateCanvas: (canvas: HTMLCanvasElement) => Promise<void>;
+    setSpeed: (speed: number) => void;
     stop: () => void;
     isRunning: () => boolean;
+    getFps: () => number;
 }
 
 // GPU レンダリング状態
@@ -226,10 +228,12 @@ interface GPURendererState {
     vertexBuffer: GPUBuffer;
     uniformBuffer: GPUBuffer;
     canvas: HTMLCanvasElement;
-    speedCallback: () => number;
+    speed: number;
     angle: number;
     isRunning: boolean;
     animationId: number | null;
+    lastFrameTime: number;
+    fps: number;
 }
 
 export async function createGPURenderer(config: GPURendererConfig): Promise<GPURendererController> {
@@ -257,19 +261,25 @@ export async function createGPURenderer(config: GPURendererConfig): Promise<GPUR
         vertexBuffer,
         uniformBuffer,
         canvas: config.canvas,
-        speedCallback: config.speedCallback,
+        speed: config.speed ?? 1.0,
         angle: 0,
         isRunning: false,
-        animationId: null
+        animationId: null,
+        lastFrameTime: performance.now(),
+        fps: 0
     };
 
     function frame(): void {
         if (!state.isRunning) return;
-        
-        const speed = state.speedCallback();
-        state.angle += 0.01 * speed;
-        
-        const modelMatrix = getRotationMatrixZ(state.angle);
+        const now = performance.now();
+        const delta = now - state.lastFrameTime;
+        state.fps = 1000 / delta;
+        state.lastFrameTime = now;
+        // speed: degree/seconds, delta: ms → 秒に変換
+        state.angle += (state.speed * (delta / 1000)); // angleはdegreeで保持
+        // degree→radian変換
+        const rad = state.angle * Math.PI / 180;
+        const modelMatrix = getRotationMatrixZ(rad);
         const viewMatrix = new Float32Array([
             1, 0, 0, 0,
             0, 1, 0, 0,
@@ -300,10 +310,10 @@ export async function createGPURenderer(config: GPURendererConfig): Promise<GPUR
         renderPass.setPipeline(state.pipeline);
         renderPass.setVertexBuffer(0, state.vertexBuffer);
         renderPass.setBindGroup(0, createTextureBindGroup(
-            state.device, 
-            state.texture, 
-            state.sampler, 
-            state.pipeline, 
+            state.device,
+            state.texture,
+            state.sampler,
+            state.pipeline,
             state.uniformBuffer
         ));
         renderPass.draw(6, 1);
@@ -343,6 +353,10 @@ export async function createGPURenderer(config: GPURendererConfig): Promise<GPUR
             }
         },
 
+        setSpeed(speed: number): void {
+            state.speed = speed;
+        },
+
         stop(): void {
             state.isRunning = false;
             if (state.animationId !== null) {
@@ -353,6 +367,10 @@ export async function createGPURenderer(config: GPURendererConfig): Promise<GPUR
 
         isRunning(): boolean {
             return state.isRunning;
+        },
+
+        getFps(): number {
+            return state.fps;
         }
     };
 
@@ -368,7 +386,7 @@ export async function run(canvas: HTMLCanvasElement) {
     const controller = await createGPURenderer({
         canvas,
         imagePath: "sample.webp",
-        speedCallback: () => 1.0
+        speed: 1.0
     });
     return controller;
 }

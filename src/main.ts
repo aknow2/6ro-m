@@ -11,18 +11,17 @@ async function createCanvas() {
   canvas.style.display = 'block';
   canvas.style.margin = 'auto';
   document.body.appendChild(canvas);
-  
+
   // 新しいAPIを使用
-  let speed = 1.0;
   const controller = await createGPURenderer({
     canvas,
     imagePath: "sample.webp",
-    speedCallback: () => speed // 基本スピード
+    speed: 300,
   });
 
   // デモ用：5秒後にスピードを変更
   setTimeout(() => {
-    speed = 3;
+    controller.setSpeed(10);
   }, 5000);
 }
 
