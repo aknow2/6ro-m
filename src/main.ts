@@ -1,9 +1,11 @@
 import { createGPURenderer } from './gpu/index.js';
+import { create6roEngine } from './engine/index.js';
+import { createKeyboardPresentation } from './presentation/keyboard.js';
 import './styles.css.ts';
 
 console.log('Hello, 6ro music!');
 
-async function createCanvas() {
+async function main() {
   const canvas = document.createElement('canvas');
   const size = Math.min(window.innerWidth, window.innerHeight);
   canvas.width = size;
@@ -12,17 +14,15 @@ async function createCanvas() {
   canvas.style.margin = 'auto';
   document.body.appendChild(canvas);
 
-  // 新しいAPIを使用
-  const controller = await createGPURenderer({
+  // engine生成
+  const engine = create6roEngine({
     canvas,
-    imagePath: "sample.webp",
-    speed: 300,
+    imagePath: 'sample.webp',
   });
+  const keyboard = createKeyboardPresentation();
+  engine.installPresentation(keyboard);
 
-  // デモ用：5秒後にスピードを変更
-  setTimeout(() => {
-    controller.setSpeed(10);
-  }, 5000);
+  engine.run();
 }
 
-window.addEventListener('load', createCanvas);
+window.addEventListener('load', main);

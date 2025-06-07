@@ -4,7 +4,7 @@
 ## audio module
 - WebAudioAPIに関する機能群
 
-## 6rom core module
+## 6rom engine module
 - 以下のIFと機能を提供する
   - 画像取り込み
   - スピード変更

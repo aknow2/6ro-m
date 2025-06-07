@@ -201,10 +201,14 @@ function createTextureBindGroup(device: GPUDevice, texture: GPUTexture, sampler:
 }
 
 // GPU レンダリング設定
+export type GPURendererSettings = {
+    speed: number; // 描画速度
+}
+
 export interface GPURendererConfig {
     canvas: HTMLCanvasElement;
     imagePath: string;
-    speed?: number; // 初期スピード値（省略時は1.0）
+    getSettings: () => GPURendererSettings;
 }
 
 // GPU レンダリングコントローラー
@@ -228,12 +232,11 @@ interface GPURendererState {
     vertexBuffer: GPUBuffer;
     uniformBuffer: GPUBuffer;
     canvas: HTMLCanvasElement;
-    speed: number;
-    angle: number;
     isRunning: boolean;
     animationId: number | null;
     lastFrameTime: number;
     fps: number;
+    angle: number;
 }
 
 export async function createGPURenderer(config: GPURendererConfig): Promise<GPURendererController> {
@@ -261,12 +264,11 @@ export async function createGPURenderer(config: GPURendererConfig): Promise<GPUR
         vertexBuffer,
         uniformBuffer,
         canvas: config.canvas,
-        speed: config.speed ?? 1.0,
-        angle: 0,
         isRunning: false,
         animationId: null,
         lastFrameTime: performance.now(),
-        fps: 0
+        fps: 0,
+        angle: 0,
     };
 
     function frame(): void {
@@ -275,9 +277,9 @@ export async function createGPURenderer(config: GPURendererConfig): Promise<GPUR
         const delta = now - state.lastFrameTime;
         state.fps = 1000 / delta;
         state.lastFrameTime = now;
-        // speed: degree/seconds, delta: ms → 秒に変換
-        state.angle += (state.speed * (delta / 1000)); // angleはdegreeで保持
-        // degree→radian変換
+        // speedはengineStateから取得
+        const { speed } = config.getSettings();
+        state.angle += speed * (delta / 1000);
         const rad = state.angle * Math.PI / 180;
         const modelMatrix = getRotationMatrixZ(rad);
         const viewMatrix = new Float32Array([
@@ -287,9 +289,9 @@ export async function createGPURenderer(config: GPURendererConfig): Promise<GPUR
             0, 0, 0, 1
         ]);
         const projectionMatrix = getPerspectiveMatrix(
-            Math.PI / 4, 
+            Math.PI / 4,
             state.canvas.width / state.canvas.height, 
-            0.1, 
+            0.1,
             10
         );
 
@@ -336,25 +338,22 @@ export async function createGPURenderer(config: GPURendererConfig): Promise<GPUR
             if (wasRunning) {
                 controller.stop();
             }
-
             // 新しいcanvasでWebGPUを再初期化
             const gpuResult = await initWebGPU(canvas);
             if (gpuResult.tag === "Err") {
                 throw new Error(gpuResult.error);
             }
-            
             state.context = gpuResult.value.context;
             state.canvas = canvas;
             state.angle = 0; // リセット
-
             if (wasRunning) {
                 state.isRunning = true;
                 state.animationId = requestAnimationFrame(frame);
             }
         },
 
-        setSpeed(speed: number): void {
-            state.speed = speed;
+        setSpeed(_speed: number): void {
+            // 廃止: engineState経由で管理
         },
 
         stop(): void {
@@ -378,15 +377,5 @@ export async function createGPURenderer(config: GPURendererConfig): Promise<GPUR
     state.isRunning = true;
     state.animationId = requestAnimationFrame(frame);
 
-    return controller;
-}
-
-// 後方互換性のためのレガシー関数
-export async function run(canvas: HTMLCanvasElement) {
-    const controller = await createGPURenderer({
-        canvas,
-        imagePath: "sample.webp",
-        speed: 1.0
-    });
     return controller;
 }
