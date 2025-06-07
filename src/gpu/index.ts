@@ -1,4 +1,4 @@
-import { Result } from "./Result";
+import { Result } from "../Result";
 
 async function loadImageBitmap(url: string): Promise<ImageBitmap> {
     const response = await fetch(url);
@@ -200,14 +200,46 @@ function createTextureBindGroup(device: GPUDevice, texture: GPUTexture, sampler:
     });
 }
 
-export async function run(canvas: HTMLCanvasElement) {
-    const gpuResult = await initWebGPU(canvas);
+// GPU レンダリング設定
+export interface GPURendererConfig {
+    canvas: HTMLCanvasElement;
+    imagePath: string;
+    speedCallback: () => number; // Frame毎にスピードを取得するコールバック
+}
+
+// GPU レンダリングコントローラー
+export interface GPURendererController {
+    updateImage: (imagePath: string) => Promise<void>;
+    updateCanvas: (canvas: HTMLCanvasElement) => Promise<void>;
+    stop: () => void;
+    isRunning: () => boolean;
+}
+
+// GPU レンダリング状態
+interface GPURendererState {
+    device: GPUDevice;
+    context: GPUCanvasContext;
+    format: GPUTextureFormat;
+    texture: GPUTexture;
+    sampler: GPUSampler;
+    pipeline: GPURenderPipeline;
+    vertexBuffer: GPUBuffer;
+    uniformBuffer: GPUBuffer;
+    canvas: HTMLCanvasElement;
+    speedCallback: () => number;
+    angle: number;
+    isRunning: boolean;
+    animationId: number | null;
+}
+
+export async function createGPURenderer(config: GPURendererConfig): Promise<GPURendererController> {
+    const gpuResult = await initWebGPU(config.canvas);
     if (gpuResult.tag === "Err") {
         throw new Error(gpuResult.error);
     }
     const { device, context, format } = gpuResult.value;
 
-    const imageBitmap = await loadImageBitmap("sample.webp");
+    const imageBitmap = await loadImageBitmap(config.imagePath);
     const texture = await createTexture(device, imageBitmap);
     const sampler = device.createSampler({ magFilter: "linear", minFilter: "linear" });
 
@@ -215,41 +247,128 @@ export async function run(canvas: HTMLCanvasElement) {
     const vertexBuffer = createVertexBuffer(device);
     const uniformBuffer = createUniformBuffer(device);
 
-    let angle = 0;
+    const state: GPURendererState = {
+        device,
+        context,
+        format,
+        texture,
+        sampler,
+        pipeline,
+        vertexBuffer,
+        uniformBuffer,
+        canvas: config.canvas,
+        speedCallback: config.speedCallback,
+        angle: 0,
+        isRunning: false,
+        animationId: null
+    };
+
     function frame(): void {
-        angle += 0.01;
-        const modelMatrix = getRotationMatrixZ(angle);
+        if (!state.isRunning) return;
+        
+        const speed = state.speedCallback();
+        state.angle += 0.01 * speed;
+        
+        const modelMatrix = getRotationMatrixZ(state.angle);
         const viewMatrix = new Float32Array([
             1, 0, 0, 0,
             0, 1, 0, 0,
             0, 0, 1, 0,
             0, 0, 0, 1
         ]);
-        const projectionMatrix = getPerspectiveMatrix(Math.PI / 4, canvas.width / canvas.height, 0.1, 10);
+        const projectionMatrix = getPerspectiveMatrix(
+            Math.PI / 4, 
+            state.canvas.width / state.canvas.height, 
+            0.1, 
+            10
+        );
 
-        device.queue.writeBuffer(uniformBuffer, 0, modelMatrix);
-        device.queue.writeBuffer(uniformBuffer, 64, viewMatrix);
-        device.queue.writeBuffer(uniformBuffer, 128, projectionMatrix);
+        state.device.queue.writeBuffer(state.uniformBuffer, 0, modelMatrix);
+        state.device.queue.writeBuffer(state.uniformBuffer, 64, viewMatrix);
+        state.device.queue.writeBuffer(state.uniformBuffer, 128, projectionMatrix);
 
-        const commandEncoder = device.createCommandEncoder();
+        const commandEncoder = state.device.createCommandEncoder();
         const renderPass = commandEncoder.beginRenderPass({
             colorAttachments: [{
-                view: context.getCurrentTexture().createView(),
+                view: state.context.getCurrentTexture().createView(),
                 loadOp: "clear",
                 storeOp: "store",
                 clearValue: { r: 1, g: 1, b: 1, a: 1 },
             }]
         });
 
-        renderPass.setPipeline(pipeline);
-        renderPass.setVertexBuffer(0, vertexBuffer);
-        renderPass.setBindGroup(0, createTextureBindGroup(device, texture, sampler, pipeline, uniformBuffer));
+        renderPass.setPipeline(state.pipeline);
+        renderPass.setVertexBuffer(0, state.vertexBuffer);
+        renderPass.setBindGroup(0, createTextureBindGroup(
+            state.device, 
+            state.texture, 
+            state.sampler, 
+            state.pipeline, 
+            state.uniformBuffer
+        ));
         renderPass.draw(6, 1);
         renderPass.end();
 
-        device.queue.submit([commandEncoder.finish()]);
-        requestAnimationFrame(frame);
+        state.device.queue.submit([commandEncoder.finish()]);
+        state.animationId = requestAnimationFrame(frame);
     }
 
-    requestAnimationFrame(frame);
+    // コントローラーを返す
+    const controller: GPURendererController = {
+        async updateImage(imagePath: string): Promise<void> {
+            const imageBitmap = await loadImageBitmap(imagePath);
+            state.texture = await createTexture(state.device, imageBitmap);
+            state.angle = 0; // リセット
+        },
+
+        async updateCanvas(canvas: HTMLCanvasElement): Promise<void> {
+            const wasRunning = state.isRunning;
+            if (wasRunning) {
+                controller.stop();
+            }
+
+            // 新しいcanvasでWebGPUを再初期化
+            const gpuResult = await initWebGPU(canvas);
+            if (gpuResult.tag === "Err") {
+                throw new Error(gpuResult.error);
+            }
+            
+            state.context = gpuResult.value.context;
+            state.canvas = canvas;
+            state.angle = 0; // リセット
+
+            if (wasRunning) {
+                state.isRunning = true;
+                state.animationId = requestAnimationFrame(frame);
+            }
+        },
+
+        stop(): void {
+            state.isRunning = false;
+            if (state.animationId !== null) {
+                cancelAnimationFrame(state.animationId);
+                state.animationId = null;
+            }
+        },
+
+        isRunning(): boolean {
+            return state.isRunning;
+        }
+    };
+
+    // 初期実行
+    state.isRunning = true;
+    state.animationId = requestAnimationFrame(frame);
+
+    return controller;
+}
+
+// 後方互換性のためのレガシー関数
+export async function run(canvas: HTMLCanvasElement) {
+    const controller = await createGPURenderer({
+        canvas,
+        imagePath: "sample.webp",
+        speedCallback: () => 1.0
+    });
+    return controller;
 }
