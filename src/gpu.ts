@@ -82,7 +82,7 @@ function getRotationMatrixY(angle: number): Float32Array {
 }
 
 // 4x4 の回転行列 (Z軸回転)
-function getRotationMatrixZ(angle: number): Float32Array {
+function getRotationMatrixZ(angle: number): Float32Array<ArrayBuffer> {
     const c = Math.cos(angle);
     const s = Math.sin(angle);
 
@@ -95,7 +95,7 @@ function getRotationMatrixZ(angle: number): Float32Array {
 }
 
 // 透視投影行列
-function getPerspectiveMatrix(fov: number, aspect: number, near: number, far: number): Float32Array {
+function getPerspectiveMatrix(fov: number, aspect: number, near: number, far: number): Float32Array<ArrayBuffer> {
     const f = 1.0 / Math.tan(fov / 2);
     return new Float32Array([
         f / aspect, 0,  0,  0,
